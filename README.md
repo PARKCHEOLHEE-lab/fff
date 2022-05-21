@@ -1,2 +1,1 @@
-# FFF
-Form Follow Function
+#### _research of fff design method_
