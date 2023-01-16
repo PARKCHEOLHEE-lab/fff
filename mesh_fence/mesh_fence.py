@@ -1,4 +1,5 @@
 ﻿import Rhino.Geometry as rg
+import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
 import ghpythonlib.treehelpers as gt
 
