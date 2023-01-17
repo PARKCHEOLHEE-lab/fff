@@ -1,28 +1,17 @@
 ﻿import math
-import random
 import Rhino.Geometry as rg
-import Rhino.RhinoDoc as rc
 import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
 
-import os
-import Rhino
-
-
-
-path = os.path.dirname(os.path.abspath(Rhino.RhinoDoc.ActiveDoc.Path))
-brep = gh.Import3DM(os.path.join(path, "voxelate", "brep.3dm"), "*", "*")
 
 class VoxelBrep:
     def __init__(self, brep, voxel_size, voxel_angle):
         self.brep = brep
         self.voxel_size = voxel_size
         self.voxel_angle = voxel_angle
-        
         self.__voxelate()
         
     def __voxelate(self):
-        """main func"""
         self.__gen_moved_brep()
         self.__gen_plane()
         self.__gen_moved_brep_bbox()
@@ -79,19 +68,30 @@ class VoxelBrep:
                 strict=False
             )
         )
-        self.inside_grid_centroid = [g.Center for g in self.inside_grid]
         
-#        self.voxels_plane = gh.ConstructPlane(
-#            origin=self.inside_grid_centroid,
-#            x_axis=self.plane.XAxis,
-#            y_axis=self.plane.YAxis
-#        )
-#        
-#        x_interval = rg.Interval(-self.voxel_size / 2, self.voxel_size / 2)
+        self.inside_grid_centroid = [g.Center for g in self.inside_grid]
+        self.voxels_plane = gh.ConstructPlane(
+            self.inside_grid_centroid,
+            self.plane.XAxis,
+            self.plane.YAxis
+        )
+        
+        interval = rg.Interval(-self.voxel_size / 2, self.voxel_size / 2)
+        self.voxels = gh.DomainBox(
+            base=self.voxels_plane,
+            x=interval,
+            y=interval,
+            z=self.voxel_size
+            
+        )
+        
+        self.voxels_mesh = [
+            rg.Mesh.CreateFromBox(v, 1, 1, 1)
+            for v in self.voxels
+        ]           
+        
 
 
 if __name__ == "__main__":
-    voxel_brep = VoxelBrep(brep=brep, voxel_size=3, voxel_angle=0.2)
-    a = voxel_brep.inside_grid_centroid
-    b = voxel_brep.plane
-    
+    voxel_brep = VoxelBrep(brep=brep, voxel_size=2.5, voxel_angle=math.radians(degree))
+    voxels = voxel_brep.voxels_mesh
