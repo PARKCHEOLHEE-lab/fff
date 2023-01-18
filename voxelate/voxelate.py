@@ -4,7 +4,25 @@ import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
 
 
-class VoxelBrep:
+class Environment:
+    def __init__(self, brep):
+        self.brep = brep
+        self.__generate()
+        
+    def __generate(self):
+        self.__gen_environment_bbox()
+        self.__gen_hemisphere()
+        
+    def __gen_environment_bbox(self):
+        self.environment_bbox = rg.Brep.GetBoundingBox(self.brep, rg.Plane.WorldXY)
+        self.environment_bbox_faces, _, _ = gh.DeconstructBrep(self.environment_bbox)
+        self.environment_bbox_bottom_face = sorted(self.environment_bbox_faces, key=lambda f: gh.Area(geometry=f).centroid.Z)[0]
+        
+    def __gen_hemisphere(self):
+        pass
+
+
+class VoxelBrep(Environment):
     def __init__(self, brep, voxel_size, voxel_angle):
         self.brep = brep
         self.voxel_size = voxel_size
@@ -13,6 +31,7 @@ class VoxelBrep:
         
     def __voxelate(self):
         self.__gen_moved_brep()
+        self.__gen_environment()
         self.__gen_plane()
         self.__gen_moved_brep_bbox()
         self.__gen_grid()
@@ -21,6 +40,9 @@ class VoxelBrep:
     def __gen_moved_brep(self):
         self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(100, 0, 0))
         self.moved_brep_mesh = rg.Mesh.CreateFromBrep(self.moved_brep, rg.MeshingParameters(0))
+        
+    def __gen_environment(self):
+        Environment.__init__(self, self.moved_brep)
         
     def __gen_plane(self):
         self.plane = gh.RotatePlane(plane=rg.Plane.WorldXY, angle=self.voxel_angle)
@@ -95,3 +117,4 @@ class VoxelBrep:
 if __name__ == "__main__":
     voxel_brep = VoxelBrep(brep=brep, voxel_size=2.5, voxel_angle=math.radians(degree))
     voxels = voxel_brep.voxels_mesh
+    a = voxel_brep.environment_bbox
