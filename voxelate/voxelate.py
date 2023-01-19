@@ -1,4 +1,5 @@
-﻿import math
+﻿"""need to cleanup code"""
+import math
 import Rhino.Geometry as rg
 import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
@@ -54,10 +55,18 @@ class Environment:
             direction=rg.Point3d(0, 0, 1)
         )
         
-        if self.projected_sun_point_to_face_centroid is None:
-            self.plane = rg.Plane.WorldXY
-        else:
-            self.plane = gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
+        self.plane = (
+            rg.Plane.WorldXY if self.projected_sun_point_to_face_centroid is None 
+            else gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
+        )
+
+
+class Voxel:
+    def __init__(self, voxel_geom=None):
+        self.voxel_geom = voxel_geom
+        self.is_roof = False
+        self.is_exterior = False
+        self.is_sun_facing = False
 
 
 class VoxelBrep(Environment):
@@ -70,7 +79,6 @@ class VoxelBrep(Environment):
     def __voxelate(self):
         self.__gen_moved_brep()
         self.__gen_environment()
-#        self.__gen_plane()
         self.__gen_moved_brep_bbox()
         self.__gen_grid()
         self.__gen_voxels()
@@ -117,14 +125,15 @@ class VoxelBrep(Environment):
             
     def __gen_voxels(self):
         self.grid_centroid = [g.Center for g in self.grid]
-        self.inside_grid = gh.CullPattern(
-            list=self.grid, 
-            cull_pattern=gh.MeshInclusion(
-                mesh=gh.MeshJoin(self.moved_brep_mesh), 
-                point=self.grid_centroid, 
-                strict=False
-            )
+        self.inside_grid_centroid = gh.MeshInclusion(
+            mesh=gh.MeshJoin(self.moved_brep_mesh), 
+            point=self.grid_centroid, 
+            strict=False
         )
+        
+        self.inside_grid = [
+             self.grid[ci] for ci, p in enumerate(self.inside_grid_centroid) if p
+        ]
         
         self.inside_grid_centroid = [g.Center for g in self.inside_grid]
         self.voxels_plane = gh.ConstructPlane(
@@ -152,9 +161,11 @@ class VoxelBrep(Environment):
 if __name__ == "__main__":
     voxel_brep = VoxelBrep(
         brep=brep, 
-        voxel_size=2.5, 
+        voxel_size=3, 
         sun_position=sun_position
     )
     
     voxels = voxel_brep.voxels_mesh
     environment = voxel_brep.hemisphere, voxel_brep.sun
+    a = voxel_brep.inside_grid_centroid
+    b = voxel_brep.moved_brep
