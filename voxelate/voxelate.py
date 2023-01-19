@@ -14,20 +14,22 @@ class Environment:
         self.__gen_environment_bbox()
         self.__gen_hemisphere()
         self.__gen_sun()
+        self.__gen_sun_facing_plane()
         
     def __gen_environment_bbox(self):
         self.environment_bbox = rg.Brep.GetBoundingBox(self.brep, rg.Plane.WorldXY)
         self.environment_bbox_faces, _, _ = gh.DeconstructBrep(self.environment_bbox)
         self.environment_bbox_bottom_face = sorted(self.environment_bbox_faces, key=lambda f: gh.Area(geometry=f).centroid.Z)[0]
+        _, self.environment_bbox_bottom_face_centroid = gh.Area(self.environment_bbox_bottom_face)
         self.environment_bbox_bottom_face_scaling, _ = gh.Scale(
             geometry=self.environment_bbox_bottom_face,
-            center=gh.Area(self.environment_bbox_bottom_face).centroid,
+            center=self.environment_bbox_bottom_face_centroid,
             factor=10,
         )
         
     def __gen_hemisphere(self):
         self.sphere = gh.Sphere(
-            base=gh.Area(self.environment_bbox_bottom_face).centroid,
+            base=self.environment_bbox_bottom_face_centroid,
             radius=100,
         )
         _, self.hemisphere = self.sphere.Split(self.environment_bbox_bottom_face_scaling, 0.001)
@@ -36,38 +38,49 @@ class Environment:
         self.hemisphere.Faces[0].SetDomain(1, self.interval)
         
     def __gen_sun(self):
-        self.sun = self.hemisphere.Faces[0].Evaluate(
+        self.sun_point = self.hemisphere.Faces[0].Evaluate(
             u=self.sun_position[0][0], 
             v=self.sun_position[0][1], 
             numberDerivatives=0,
         )[1]
         
+        self.sun = gh.Sphere(base=self.sun_point, radius=5)
+        
+    def __gen_sun_facing_plane(self):
+        self.sun_point_to_face_centroid = rg.Line(self.sun_point, self.environment_bbox_bottom_face_centroid)
+        self.projected_sun_point_to_face_centroid = gh.Project(
+            curve=self.sun_point_to_face_centroid,
+            brep=self.environment_bbox_bottom_face_scaling,
+            direction=rg.Point3d(0, 0, 1)
+        )
+        
+        if self.projected_sun_point_to_face_centroid is None:
+            self.plane = rg.Plane.WorldXY
+        else:
+            self.plane = gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
+
 
 class VoxelBrep(Environment):
-    def __init__(self, brep, voxel_size, voxel_angle, sun_position):
+    def __init__(self, brep, voxel_size, sun_position):
         self.brep = brep
         self.voxel_size = voxel_size
-        self.voxel_angle = voxel_angle
         self.sun_position = sun_position
         self.__voxelate()
         
     def __voxelate(self):
         self.__gen_moved_brep()
         self.__gen_environment()
-        self.__gen_plane()
+#        self.__gen_plane()
         self.__gen_moved_brep_bbox()
         self.__gen_grid()
         self.__gen_voxels()
         
     def __gen_moved_brep(self):
-        self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(100, 0, 0))
+        self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(150, 0, 0))
         self.moved_brep_mesh = rg.Mesh.CreateFromBrep(self.moved_brep, rg.MeshingParameters(0))
         
     def __gen_environment(self):
         Environment.__init__(self, self.moved_brep, sun_position)
-        
-    def __gen_plane(self):
-        self.plane = gh.RotatePlane(plane=rg.Plane.WorldXY, angle=self.voxel_angle)
         
     def __gen_moved_brep_bbox(self):
         self.moved_brep_bbox, _ = gh.BoundingBox(content=self.moved_brep, plane=self.plane)
@@ -133,16 +146,15 @@ class VoxelBrep(Environment):
             rg.Mesh.CreateFromBox(v, 1, 1, 1)
             for v in self.voxels
         ]           
-        
+
 
 
 if __name__ == "__main__":
     voxel_brep = VoxelBrep(
         brep=brep, 
         voxel_size=2.5, 
-        voxel_angle=math.radians(degree), 
         sun_position=sun_position
     )
     
     voxels = voxel_brep.voxels_mesh
-    a = voxel_brep.sun, voxel_brep.hemisphere
+    environment = voxel_brep.hemisphere, voxel_brep.sun
