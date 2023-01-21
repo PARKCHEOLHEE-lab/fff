@@ -5,6 +5,7 @@ import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
 
 
+
 class Environment:
     def __init__(self, brep, sun_position):
         self.brep = brep
@@ -62,19 +63,49 @@ class Environment:
 
 
 class Voxel:
-    def __init__(self, voxel_geom=None):
+    def __init__(
+        self, 
+        voxel_geom=None,
+        facing_angle=None,
+        is_roof=False,
+        is_exterior=False,
+        is_sun_facing=False,
+    ):
         self.voxel_geom = voxel_geom
-        self.is_roof = False
-        self.is_exterior = False
-        self.is_sun_facing = False
+        self.facing_angle = facing_angle
+        self.is_roof = is_roof
+        self.is_exterior = is_exterior
+        self.is_sun_facing = is_sun_facing
+        
+    def get_voxel_information(self, voxel_geom, sun_centroid):
+        facing_angle = self.__get_facing_angle(gh.Volume(voxel_geom).centroid, sun_centroid)
+        
+        return Voxel(
+            voxel_geom=voxel_geom, 
+            facing_angle=facing_angle,
+            is_roof=False,
+            is_exterior=False,
+            is_sun_facing=False,
+        )
+        
+    def __get_facing_angle(self, voxel_geom_centroid, sun_centroid):
+        x1, y1, _ = voxel_geom_centroid
+        x2, y2, _ = sun_centroid
+        return math.atan2(y2 - y1, x2 - x1)
 
 
-class VoxelBrep(Environment):
+class VoxelBrep(Voxel, Environment):
     def __init__(self, brep, voxel_size, sun_position):
         self.brep = brep
         self.voxel_size = voxel_size
         self.sun_position = sun_position
         self.__voxelate()
+        
+    def __len__(self):
+        return len(self.voxels)
+        
+    def __getitem__(self, i):
+        return self.voxels[i]
         
     def __voxelate(self):
         self.__gen_moved_brep()
@@ -89,6 +120,7 @@ class VoxelBrep(Environment):
         
     def __gen_environment(self):
         Environment.__init__(self, self.moved_brep, sun_position)
+        Voxel.__init__(self)
         
     def __gen_moved_brep_bbox(self):
         self.moved_brep_bbox, _ = gh.BoundingBox(content=self.moved_brep, plane=self.plane)
@@ -135,27 +167,12 @@ class VoxelBrep(Environment):
              self.grid[ci] for ci, p in enumerate(self.inside_grid_centroid) if p
         ]
         
-        self.inside_grid_centroid = [g.Center for g in self.inside_grid]
-        self.voxels_plane = gh.ConstructPlane(
-            self.inside_grid_centroid,
-            self.plane.XAxis,
-            self.plane.YAxis
-        )
-        
-        interval = rg.Interval(-self.voxel_size / 2, self.voxel_size / 2)
-        self.voxels = gh.DomainBox(
-            base=self.voxels_plane,
-            x=interval,
-            y=interval,
-            z=self.voxel_size
-            
-        )
-        
-        self.voxels_mesh = [
-            rg.Mesh.CreateFromBox(v, 1, 1, 1)
-            for v in self.voxels
-        ]           
-
+        _, sun_centroid = gh.Volume(self.sun)
+        self.voxels = gh.BoxRectangle(self.inside_grid, self.voxel_size)
+        self.voxels_objects = []
+        for voxel_geom in self.voxels:
+            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid)
+            self.voxels_objects.append(voxel_object)
 
 
 if __name__ == "__main__":
@@ -165,7 +182,8 @@ if __name__ == "__main__":
         sun_position=sun_position
     )
     
-    voxels = voxel_brep.voxels_mesh
+    voxels = [v.voxel_geom for v in voxel_brep.voxels_objects]
+    angles = [v.facing_angle for v in voxel_brep.voxels_objects]
     environment = voxel_brep.hemisphere, voxel_brep.sun
     a = voxel_brep.inside_grid_centroid
     b = voxel_brep.moved_brep
