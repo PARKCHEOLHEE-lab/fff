@@ -79,7 +79,8 @@ class Voxel:
         
     def get_voxel_information(self, voxel_geom, sun_centroid):
         facing_angle = self.__get_facing_angle(gh.Volume(voxel_geom).centroid, sun_centroid)
-        
+        voxel_geom.ToBrep().Faces
+
         return Voxel(
             voxel_geom=voxel_geom, 
             facing_angle=facing_angle,
@@ -170,9 +171,17 @@ class VoxelBrep(Voxel, Environment):
         _, sun_centroid = gh.Volume(self.sun)
         self.voxels = gh.BoxRectangle(self.inside_grid, self.voxel_size)
         self.voxels_objects = []
-        for voxel_geom in self.voxels:
+        for vi, voxel_geom in enumerate(self.voxels):
+            other_voxels = self.voxels[:vi] + self.voxels[vi+1:]
             voxel_object = self.get_voxel_information(voxel_geom, sun_centroid)
+            
+            
             self.voxels_objects.append(voxel_object)
+            print(len(other_voxels))
+            
+        self.voxels_mesh = [
+            rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in self.voxels
+        ]
 
 
 if __name__ == "__main__":
@@ -185,5 +194,4 @@ if __name__ == "__main__":
     voxels = [v.voxel_geom for v in voxel_brep.voxels_objects]
     angles = [v.facing_angle for v in voxel_brep.voxels_objects]
     environment = voxel_brep.hemisphere, voxel_brep.sun
-    a = voxel_brep.inside_grid_centroid
-    b = voxel_brep.moved_brep
+    a = voxel_brep.voxels_mesh
