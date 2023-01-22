@@ -77,9 +77,9 @@ class Voxel:
         self.is_exterior = is_exterior
         self.is_sun_facing = is_sun_facing
         
-    def get_voxel_information(self, voxel_geom, sun_centroid):
+    def get_voxel_information(self, voxel_geom, sun_centroid, other_voxels):
         facing_angle = self.__get_facing_angle(gh.Volume(voxel_geom).centroid, sun_centroid)
-        voxel_geom.ToBrep().Faces
+        is_roof, is_exterior, is_sun_facing = self.__get_voxel_statement(voxel_geom.ToBrep().Faces, other_voxels)
 
         return Voxel(
             voxel_geom=voxel_geom, 
@@ -93,6 +93,9 @@ class Voxel:
         x1, y1, _ = voxel_geom_centroid
         x2, y2, _ = sun_centroid
         return math.atan2(y2 - y1, x2 - x1)
+        
+    def __get_voxel_statement(self, voxel_faces, other_voxels):
+        return False, False, False
 
 
 class VoxelBrep(Voxel, Environment):
@@ -173,11 +176,9 @@ class VoxelBrep(Voxel, Environment):
         self.voxels_objects = []
         for vi, voxel_geom in enumerate(self.voxels):
             other_voxels = self.voxels[:vi] + self.voxels[vi+1:]
-            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid)
-            
+            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid, other_voxels)
             
             self.voxels_objects.append(voxel_object)
-            print(len(other_voxels))
             
         self.voxels_mesh = [
             rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in self.voxels
