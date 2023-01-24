@@ -90,7 +90,7 @@ class Voxel:
             voxel_geom=voxel_geom, 
             facing_angle=facing_angle,
             is_roof=is_roof,
-            is_exterior=False,
+            is_exterior=is_exterior,
             is_sun_facing=False,
         )
         
@@ -106,19 +106,27 @@ class Voxel:
         voxel_geom_faces_centroids, _ = gh.FaceNormals(voxel_geom)
         remain_voxels_centroids_cloud = rg.PointCloud(remain_voxels_centroids)
         
+        c = 0
         is_roof = False
         is_exterior = False
         is_sun_facing = False
+        
         for fci, face_centroid in enumerate(voxel_geom_faces_centroids[1:]):
             closest_point_idx = remain_voxels_centroids_cloud.ClosestPoint(face_centroid)
+            statement_checker = __is_close(
+                remain_voxels_centroids[closest_point_idx].DistanceTo(face_centroid), 
+                self.voxel_size / 2
+            )
             
             if fci == 0:
-                is_roof = __is_close(remain_voxels_centroids[closest_point_idx].DistanceTo(face_centroid), self.voxel_size / 2)
+                is_roof = not statement_checker
                 
-            elif fci in (1, 2, 3, 4):
-                pass
+            elif fci in (1, 2, 3, 4) and statement_checker:
+                c += 1
                 
-        return is_roof, False, False
+        is_exterior = c != 4 and not is_roof
+        
+        return is_roof, is_exterior, False
 
 
 class VoxelShape(Voxel, Environment):
@@ -226,6 +234,4 @@ if __name__ == "__main__":
     angles = [v.facing_angle for v in voxel_brep.voxels_objects]
     environment = voxel_brep.hemisphere, voxel_brep.sun
     
-    a = voxel_brep.test1
-    b = voxel_brep.test2
-    c = voxel_brep.test3
+    a = [v.is_exterior for v in voxel_brep.voxels_objects]
