@@ -5,6 +5,11 @@ import rhinoscriptsyntax as rs
 import ghpythonlib.components as gh
 
 
+TOLERANCE = 0.001
+HEMISPHERE_RAD = 100
+SUN_RAD = 5
+MOVE_DIST = 150
+
 
 class Environment:
     def __init__(self, brep, sun_position):
@@ -19,7 +24,7 @@ class Environment:
         self.__gen_sun_facing_plane()
         
     def __gen_environment_bbox(self):
-        self.environment_bbox = rg.Brep.GetBoundingBox(self.brep, rg.Plane.WorldXY)
+        self.environment_bbox = self.brep.GetBoundingBox(rg.Plane.WorldXY)
         self.environment_bbox_faces, _, _ = gh.DeconstructBrep(self.environment_bbox)
         self.environment_bbox_bottom_face = sorted(self.environment_bbox_faces, key=lambda f: gh.Area(geometry=f).centroid.Z)[0]
         _, self.environment_bbox_bottom_face_centroid = gh.Area(self.environment_bbox_bottom_face)
@@ -32,9 +37,9 @@ class Environment:
     def __gen_hemisphere(self):
         self.sphere = gh.Sphere(
             base=self.environment_bbox_bottom_face_centroid,
-            radius=100,
+            radius=HEMISPHERE_RAD,
         )
-        _, self.hemisphere = self.sphere.Split(self.environment_bbox_bottom_face_scaling, 0.001)
+        _, self.hemisphere = self.sphere.Split(self.environment_bbox_bottom_face_scaling, TOLERANCE)
         self.interval = rg.Interval(0, 1)
         self.hemisphere.Faces[0].SetDomain(0, self.interval)
         self.hemisphere.Faces[0].SetDomain(1, self.interval)
@@ -46,7 +51,7 @@ class Environment:
             numberDerivatives=0,
         )[1]
         
-        self.sun = gh.Sphere(base=self.sun_point, radius=5)
+        self.sun = gh.Sphere(base=self.sun_point, radius=SUN_RAD)
         
     def __gen_sun_facing_plane(self):
         self.sun_point_to_face_centroid = rg.Line(self.sun_point, self.environment_bbox_bottom_face_centroid)
@@ -77,18 +82,14 @@ class Voxel:
         self.is_exterior = is_exterior
         self.is_sun_facing = is_sun_facing
         
-        self.faces = None
-        if voxel_geom is not None:
-            self.faces = voxel_geom.ToBrep().Faces
-        
-    def get_voxel_information(self, voxel_geom, sun_centroid, other_voxels):
+    def get_voxel_information(self, voxel_geom, sun_centroid, remain_voxels_centroids):
         facing_angle = self.__get_facing_angle(gh.Volume(voxel_geom).centroid, sun_centroid)
-        is_roof, is_exterior, is_sun_facing = self.__get_voxel_statement(self.faces, other_voxels)
-
+        is_roof, is_exterior, is_sun_facing = self.__get_voxel_statement(voxel_geom, remain_voxels_centroids)
+        
         return Voxel(
             voxel_geom=voxel_geom, 
             facing_angle=facing_angle,
-            is_roof=False,
+            is_roof=is_roof,
             is_exterior=False,
             is_sun_facing=False,
         )
@@ -98,12 +99,29 @@ class Voxel:
         x2, y2, _ = sun_centroid
         return math.atan2(y2 - y1, x2 - x1)
         
-    def __get_voxel_statement(self, voxel_faces, other_voxels):
-        self.voxel_faces = voxel_faces
-        return False, False, False
+    def __get_voxel_statement(self, voxel_geom, remain_voxels_centroids):
+        def __is_close(n1, n2, tolerance=TOLERANCE):
+            return abs(n1 - n2) <= tolerance
+        
+        voxel_geom_faces_centroids, _ = gh.FaceNormals(voxel_geom)
+        remain_voxels_centroids_cloud = rg.PointCloud(remain_voxels_centroids)
+        
+        is_roof = False
+        is_exterior = False
+        is_sun_facing = False
+        for fci, face_centroid in enumerate(voxel_geom_faces_centroids[1:]):
+            closest_point_idx = remain_voxels_centroids_cloud.ClosestPoint(face_centroid)
+            
+            if fci == 0:
+                is_roof = __is_close(remain_voxels_centroids[closest_point_idx].DistanceTo(face_centroid), self.voxel_size / 2)
+                
+            elif fci in (1, 2, 3, 4):
+                pass
+                
+        return is_roof, False, False
 
 
-class VoxelBrep(Voxel, Environment):
+class VoxelShape(Voxel, Environment):
     def __init__(self, brep, voxel_size, sun_position):
         self.brep = brep
         self.voxel_size = voxel_size
@@ -124,7 +142,7 @@ class VoxelBrep(Voxel, Environment):
         self.__gen_voxels()
         
     def __gen_moved_brep(self):
-        self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(150, 0, 0))
+        self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(MOVE_DIST, 0, 0))
         self.moved_brep_mesh = rg.Mesh.CreateFromBrep(self.moved_brep, rg.MeshingParameters(0))
         
     def __gen_environment(self):
@@ -176,22 +194,29 @@ class VoxelBrep(Voxel, Environment):
              self.grid[ci] for ci, p in enumerate(self.inside_grid_centroid) if p
         ]
         
+        self.voxels_centroids = [
+            g.Center + rg.Point3d(0, 0, self.voxel_size / 2) for g in self.inside_grid
+        ]
+        
         _, sun_centroid = gh.Volume(self.sun)
-        self.voxels = gh.BoxRectangle(self.inside_grid, self.voxel_size)
+        self.voxels = [
+            rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in  gh.BoxRectangle(self.inside_grid, self.voxel_size)
+        ]
         self.voxels_objects = []
         for vi, voxel_geom in enumerate(self.voxels):
-            other_voxels = self.voxels[:vi] + self.voxels[vi+1:]
-            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid, other_voxels)
+            remain_voxels_centroids = self.voxels_centroids[:vi] + self.voxels_centroids[vi+1:]
+            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid, remain_voxels_centroids)
             
             self.voxels_objects.append(voxel_object)
-            
-#        self.voxels_mesh = [
-#            rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in self.voxels
-#        ]
+        
+        self.test1 = self.voxels_objects[-2].voxel_geom
+        self.test2 = remain_voxels_centroids
+        self.test3 = gh.FaceNormals(voxel_geom).centers
+
 
 
 if __name__ == "__main__":
-    voxel_brep = VoxelBrep(
+    voxel_brep = VoxelShape(
         brep=brep, 
         voxel_size=3, 
         sun_position=sun_position
@@ -200,8 +225,7 @@ if __name__ == "__main__":
     voxels = [v.voxel_geom for v in voxel_brep.voxels_objects]
     angles = [v.facing_angle for v in voxel_brep.voxels_objects]
     environment = voxel_brep.hemisphere, voxel_brep.sun
-    a = voxel_brep.voxels_objects[4].faces
     
-    # 0, 1, 2, 3 -> side
-    # 4          -> bottom
-    # 5          -> top
+    a = voxel_brep.test1
+    b = voxel_brep.test2
+    c = voxel_brep.test3
