@@ -4,8 +4,8 @@ import Rhino.Geometry as rg
 import ghpythonlib.components as gh
 import ghpythonlib.treehelpers as gt
 
-
 TOLERANCE = 0.001
+TOLERANCE_MICRO = 0.00001
 HEMISPHERE_RAD = 100
 SUN_RAD = 5
 MOVE_DIST = 150
@@ -67,11 +67,19 @@ class Environment:
         )
 
 
+class VoxelConditions:
+    UNDEFINED = -1
+    ROOF = 3
+    EXTERIOR = 4
+    INTERIOR = 5
+
+
 class Voxel:
     def __init__(
         self, 
         voxel_geom=None,
         voxel_geom_centroid=None,
+        voxel_condition=None,
         facing_angle=None,
         is_roof=False,
         is_exterior=False,
@@ -79,30 +87,26 @@ class Voxel:
     ):
         self.voxel_geom = voxel_geom
         self.voxel_geom_centroid = voxel_geom_centroid
+        self.voxel_condition = voxel_condition
         self.facing_angle = facing_angle
         self.is_roof = is_roof
         self.is_exterior = is_exterior
         self.is_sun_facing = is_sun_facing
         
+    """ archived
+    
     def get_voxel_information(self, voxel_geom, sun_centroid, remain_voxels_centroids):
         voxel_geom_centroid = gh.Volume(voxel_geom).centroid
-        
-        facing_angle = self.__get_facing_angle(voxel_geom_centroid, sun_centroid)
         is_roof, is_exterior, is_sun_facing = self.__get_voxel_statement(voxel_geom, remain_voxels_centroids)
         
         return Voxel(
             voxel_geom=voxel_geom,
             voxel_geom_centroid=voxel_geom_centroid,
-            facing_angle=facing_angle,
+            facing_angle=self.__get_facing_angle(voxel_geom_centroid, sun_centroid),
             is_roof=is_roof,
             is_exterior=is_exterior,
             is_sun_facing=False,
         )
-        
-    def __get_facing_angle(self, voxel_geom_centroid, sun_centroid):
-        x1, y1, _ = voxel_geom_centroid
-        x2, y2, _ = sun_centroid
-        return math.atan2(y2 - y1, x2 - x1)
         
     def __get_voxel_statement(self, voxel_geom, remain_voxels_centroids):
         def __is_close(n1, n2, tolerance=TOLERANCE):
@@ -133,11 +137,25 @@ class Voxel:
         
         return is_roof, is_exterior, False
         
-    def __get_voxel_statement_without_geom(self, voxel_geom, voxel_3d_list):
-        return
+    archived """
+        
+    def get_voxel_information_v2(self, voxel_geom, sun_centroid, voxel_condition):
+        voxel_geom_centroid = gh.Volume(voxel_geom).centroid
+        
+        return Voxel(
+            voxel_geom=voxel_geom,
+            voxel_geom_centroid=voxel_geom_centroid,
+            facing_angle=self.__get_facing_angle(voxel_geom_centroid, sun_centroid),
+            voxel_condition=voxel_condition
+        )
+        
+    def __get_facing_angle(self, voxel_geom_centroid, sun_centroid):
+        x1, y1, _ = voxel_geom_centroid
+        x2, y2, _ = sun_centroid
+        return math.atan2(y2 - y1, x2 - x1)
 
 
-class VoxelShape(Voxel, Environment):
+class VoxelShape(Voxel, VoxelConditions, Environment):
     def __init__(self, brep, voxel_size, sun_position):
         self.brep = brep
         self.voxel_size = voxel_size
@@ -164,6 +182,7 @@ class VoxelShape(Voxel, Environment):
     def __gen_environment(self):
         Environment.__init__(self, self.moved_brep, sun_position)
         Voxel.__init__(self)
+        VoxelConditions.__init__(self)
         
     def __gen_moved_brep_bbox(self):
         self.moved_brep_bbox, _ = gh.BoundingBox(content=self.moved_brep, plane=self.plane)
@@ -203,20 +222,64 @@ class VoxelShape(Voxel, Environment):
             self.grid.extend(moved_rectangles)
             
     def __gen_voxels(self):
-        self.grid_centroid = [g.Center for g in self.grid]
+        self.grid_centroid = [
+            g.Center if g.Center.Z != 0 
+            else g.Center + rg.Point3d(0, 0, TOLERANCE_MICRO) 
+            for g in self.grid
+        ]
+        
         self.inside_grid_centroid = gh.MeshInclusion(
             mesh=gh.MeshJoin(self.moved_brep_mesh), 
             point=self.grid_centroid, 
             strict=False
         )
         
-        self.inside_grid_centroid_integer = [
-            int(b) for b in self.inside_grid_centroid
-        ]
+        (
+            self.voxel_3d_list,
+            self.grid_3d_list,
+            self.roof_3d_list, 
+            self.exterior_3d_list, 
+            self.interior_3d_list
+        ) = self.__get_voxels_condition_list()
         
-        self.voxel_3d_list = self.__get_reshaped_list(
-            self.inside_grid_centroid_integer, self.x_cols, self.y_cols, self.z_cols
-        )
+        self.voxels_objects = []
+        _, sun_centroid = gh.Volume(self.sun)
+        
+        for zi, voxels in enumerate(self.voxel_3d_list):
+            for yi, solid_conditions in enumerate(voxels):
+                if all([not bool(y) for y in solid_conditions]):
+                    continue
+                
+                roof_conditions = self.roof_3d_list[zi][yi]
+                exterior_conditions = self.exterior_3d_list[zi][yi]
+                interior_conditions = self.interior_3d_list[zi][yi]
+                
+                for xi, sc in enumerate(solid_conditions):
+                    if not bool(sc):
+                        continue
+                    
+                    voxel_geom = (
+                        rg.Mesh.CreateFromBox(
+                            gh.BoxRectangle(self.grid_3d_list[zi][yi][xi], self.voxel_size),
+                            1,
+                            1,
+                            1
+                        )
+                    )
+                    
+                    voxel_condition = self.UNDEFINED
+                    if bool(roof_conditions[xi]):
+                        voxel_condition = self.ROOF
+                    elif bool(exterior_conditions[xi]):
+                        voxel_condition = self.EXTERIOR                    
+                    elif bool(interior_conditions[xi]):
+                        voxel_condition = self.INTERIOR  
+                        
+                    self.voxels_objects.append(
+                        self.get_voxel_information_v2(voxel_geom, sun_centroid, voxel_condition)
+                    )
+        
+        """ archived
         
         self.inside_grid = [
              self.grid[ci] for ci, p in enumerate(self.inside_grid_centroid) if p
@@ -226,48 +289,19 @@ class VoxelShape(Voxel, Environment):
             g.Center + rg.Point3d(0, 0, self.voxel_size / 2) for g in self.inside_grid
         ]
         
-        _, sun_centroid = gh.Volume(self.sun)
-        
         self.voxels = [
-            rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in  gh.BoxRectangle(self.inside_grid, self.voxel_size)
+            rg.Mesh.CreateFromBox(v, 1, 1, 1) for v in gh.BoxRectangle(self.inside_grid, self.voxel_size)
         ]
         
-#        print(self.voxel_3d_list[1])
-#        self.__get_voxel_statement_without_geom(self.voxel_3d_list)
         
-        roof_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        for zi, z_list in enumerate(self.voxel_3d_list):
-            next_zi = (zi + 1) % len(self.voxel_3d_list)
+        for vi, voxel_geom in enumerate(self.voxels):
+            remain_voxels_centroids = self.voxels_centroids[:vi] + self.voxels_centroids[vi+1:]
+            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid, remain_voxels_centroids)
             
-            for yi, y_list in enumerate(z_list):
-                prev_yi = (yi - 1) % len(z_list)
-                next_yi = (yi + 1) % len(z_list)
-                
-                for xi, x in enumerate(y_list):
-                    
-                    prev_x = y_list[(xi - 1) % len(y_list)]
-                    next_x = y_list[(xi + 1) % len(y_list)]
-                    back_x = z_list[prev_yi][xi]
-                    frnt_x = z_list[next_yi][xi]
-                    
-                    is_roof = bool(x) and not bool(self.voxel_3d_list[next_zi][yi][xi])
-                    is_exterior = bool(x) and any([not prev_x , not next_x, not back_x, not frnt_x])
-                    
-                    if is_roof:
-                        roof_list[zi][yi][xi] = 1
-                    
-                    elif is_exterior and not is_roof:
-                        exterior_list[zi][yi][xi] = 1
-        
-        print(exterior_list[1])
-#        self.voxels_objects = []
-#        for vi, voxel_geom in enumerate(self.voxels):
-#            remain_voxels_centroids = self.voxels_centroids[:vi] + self.voxels_centroids[vi+1:]
-#            voxel_object = self.get_voxel_information(voxel_geom, sun_centroid, remain_voxels_centroids)
-#            
-#            self.voxels_objects.append(voxel_object)
-        
+            self.voxels_objects.append(voxel_object)
+            
+        arcihved """
+
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
             one_dim_list[x : x + x_shape] for x in range(0, len(one_dim_list), x_shape)
@@ -282,6 +316,52 @@ class VoxelShape(Voxel, Environment):
         ]
         
         return z_divided_list[0]
+        
+    def __get_voxels_condition_list(self):
+        inside_grid_centroid_integer = [int(b) for b in self.inside_grid_centroid]
+        voxel_3d_list = self.__get_reshaped_list(
+            inside_grid_centroid_integer, self.x_cols, self.y_cols, self.z_cols
+        )
+        
+        roof_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        exterior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        for zi, z_list in enumerate(voxel_3d_list):
+            prev_zi = (zi - 1) % len(voxel_3d_list)
+            next_zi = (zi + 1) % len(voxel_3d_list)
+            
+            for yi, y_list in enumerate(z_list):
+                prev_yi = (yi - 1) % len(z_list)
+                next_yi = (yi + 1) % len(z_list)
+                
+                for xi, x in enumerate(y_list):
+                    prev_x = y_list[(xi - 1) % len(y_list)]
+                    next_x = y_list[(xi + 1) % len(y_list)]
+                    back_x = z_list[prev_yi][xi]
+                    frnt_x = z_list[next_yi][xi]
+                    
+                    is_roof = bool(x) and not bool(voxel_3d_list[next_zi][yi][xi])
+                    is_exterior = bool(x) and any([not prev_x, not next_x, not back_x, not frnt_x])
+                    if is_roof:
+                        roof_3d_list[zi][yi][xi] = 1
+                    
+                    if is_exterior:
+                        exterior_3d_list[zi][yi][xi] = 1
+                        
+        interior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        for zi, (z_list, e_list) in enumerate(zip(voxel_3d_list, exterior_3d_list)):
+            for yi, (z, e) in enumerate(zip(z_list, e_list)):
+                for xi, (zx, ex) in enumerate(zip(z, e)):
+                    interior_3d_list[zi][yi][xi] = zx - ex
+        
+        for zi, (r_list, e_list) in enumerate(zip(roof_3d_list, exterior_3d_list)):
+            for yi, (r, e) in enumerate(zip(r_list, e_list)):
+                for xi, (rx, ex) in enumerate(zip(r, e)):
+                    if bool(rx) and bool(ex):
+                        exterior_3d_list[zi][yi][xi] = 0
+        
+        grid_3d_list = self.__get_reshaped_list(self.grid, self.x_cols, self.y_cols, self.z_cols)
+        
+        return voxel_3d_list, grid_3d_list, roof_3d_list, exterior_3d_list, interior_3d_list
 
 
 
@@ -292,12 +372,9 @@ if __name__ == "__main__":
         sun_position=sun_position
     )
     
-    c = voxel_shape.voxels
+    environment = gh.DeconstructBrep(voxel_shape.hemisphere).edges + [voxel_shape.sun]
     
-#    voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
-#    angles = [v.facing_angle for v in voxel_shape.voxels_objects]
-#    environment = voxel_shape.hemisphere, voxel_shape.sun
-
-    a = gt.list_to_tree(voxel_shape.voxel_3d_list)
-    other_voxels = voxel_shape.grid_centroid
+    voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
+    angles = [v.facing_angle for v in voxel_shape.voxels_objects]
+    conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
     
