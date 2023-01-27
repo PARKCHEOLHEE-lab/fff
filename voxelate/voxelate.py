@@ -4,6 +4,8 @@ import Rhino.Geometry as rg
 import ghpythonlib.components as gh
 import ghpythonlib.treehelpers as gt
 
+
+
 TOLERANCE = 0.001
 TOLERANCE_MICRO = 0.00001
 HEMISPHERE_RAD = 100
@@ -61,6 +63,7 @@ class Environment:
             direction=rg.Point3d(0, 0, 1)
         )
         
+        self.sun_vector = self.environment_bbox_bottom_face_centroid - self.sun_point
         self.plane = (
             rg.Plane.WorldXY if self.projected_sun_point_to_face_centroid is None 
             else gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
@@ -377,4 +380,29 @@ if __name__ == "__main__":
     voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
     angles = [v.facing_angle for v in voxel_shape.voxels_objects]
     conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
+    
+    
+    # testing place
+    
+    sun_pt = voxel_shape.sun_point
+    roof_exterior_centroid = [
+        v.voxel_geom_centroid 
+        for v in voxel_shape.voxels_objects 
+        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+    ]
+    roof_exterior_voxels = [
+        v.voxel_geom
+        for v in voxel_shape.voxels_objects 
+        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+    ]
+    
+    sun_to_centroid_line = [
+        gh.Line(sun_pt, centroid) for centroid in roof_exterior_centroid
+    ]
+    
+    for vi, voxel in enumerate(voxel_shape.voxels_objects):
+        other_voxels = voxel_shape.voxels_objects[:vi] + voxel_shape.voxels_objects[vi + 1:]
+        pass
+    
+    # testing place
     
