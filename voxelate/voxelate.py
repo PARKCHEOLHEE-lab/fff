@@ -371,7 +371,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
 if __name__ == "__main__":
     voxel_shape = VoxelShape(
         brep=brep, 
-        voxel_size=3, 
+        voxel_size=3.7, 
         sun_position=sun_position
     )
     
@@ -381,28 +381,30 @@ if __name__ == "__main__":
     angles = [v.facing_angle for v in voxel_shape.voxels_objects]
     conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
     
+    """ testing place """
     
-    # testing place
-    
-    sun_pt = voxel_shape.sun_point
-    roof_exterior_centroid = [
-        v.voxel_geom_centroid 
+    roof_exterior_centroid_ray = [
+        gh.Line(voxel_shape.sun_point, v.voxel_geom_centroid)
         for v in voxel_shape.voxels_objects 
         if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
     ]
+    
     roof_exterior_voxels = [
         v.voxel_geom
         for v in voxel_shape.voxels_objects 
         if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
     ]
     
-    sun_to_centroid_line = [
-        gh.Line(sun_pt, centroid) for centroid in roof_exterior_centroid
-    ]
-    
-    for vi, voxel in enumerate(voxel_shape.voxels_objects):
-        other_voxels = voxel_shape.voxels_objects[:vi] + voxel_shape.voxels_objects[vi + 1:]
-        pass
-    
-    # testing place
+    shades = []
+    for ray in roof_exterior_centroid_ray:
+        shade = []
+        for voxel in voxels:
+            _, count = rg.Intersect.Intersection.MeshLine(voxel, ray)
+            
+            if count is not None:
+                shade.append(count[0])
+        
+        shades.append(sum(shade))
+        
+    """ testing place """
     
