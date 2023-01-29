@@ -8,9 +8,9 @@ import ghpythonlib.treehelpers as gt
 
 TOLERANCE = 0.001
 TOLERANCE_MICRO = 0.00001
-HEMISPHERE_RAD = 100
+HEMISPHERE_RAD = 150
 SUN_RAD = 5
-MOVE_DIST = 150
+MOVE_DIST = HEMISPHERE_RAD * 1.7
 
 
 class Environment:
@@ -33,7 +33,7 @@ class Environment:
         self.environment_bbox_bottom_face_scaling, _ = gh.Scale(
             geometry=self.environment_bbox_bottom_face,
             center=self.environment_bbox_bottom_face_centroid,
-            factor=10,
+            factor=HEMISPHERE_RAD * 0.1,
         )
         
     def __gen_hemisphere(self):
@@ -304,6 +304,9 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
             self.voxels_objects.append(voxel_object)
             
         arcihved """
+        
+    def __gen_voxel_shades(self):
+        pass
 
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
@@ -371,11 +374,12 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
 if __name__ == "__main__":
     voxel_shape = VoxelShape(
         brep=brep, 
-        voxel_size=3.7, 
+        voxel_size=voxel_size, 
         sun_position=sun_position
     )
     
     environment = gh.DeconstructBrep(voxel_shape.hemisphere).edges + [voxel_shape.sun]
+    sun_vector = voxel_shape.sun_vector
     
     voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
     angles = [v.facing_angle for v in voxel_shape.voxels_objects]
