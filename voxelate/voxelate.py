@@ -5,7 +5,6 @@ import ghpythonlib.components as gh
 import ghpythonlib.treehelpers as gt
 
 
-
 TOLERANCE = 0.001
 TOLERANCE_MICRO = 0.00001
 HEMISPHERE_RAD = 150
@@ -177,6 +176,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         self.__gen_moved_brep_bbox()
         self.__gen_grid()
         self.__gen_voxels()
+        self.__gen_voxel_shades()
         
     def __gen_moved_brep(self):
         self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(MOVE_DIST, 0, 0))
@@ -306,7 +306,28 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         arcihved """
         
     def __gen_voxel_shades(self):
-        pass
+        roof_exterior_centroid_ray = [
+            gh.Line(self.sun_point, v.voxel_geom_centroid)
+            for v in self.voxels_objects 
+            if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+        ]
+        
+        self.roof_exterior_voxels = [
+            v.voxel_geom
+            for v in self.voxels_objects 
+            if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+        ]
+        
+        self.shades = []
+        for ray in roof_exterior_centroid_ray:
+            shade = []
+            for voxel in self.voxels_objects:
+                _, count = rg.Intersect.Intersection.MeshLine(voxel.voxel_geom, ray)
+                
+                if count is not None:
+                    shade.append(count[0])
+            
+            self.shades.append(sum(shade))
 
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
@@ -372,6 +393,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
 
 
 if __name__ == "__main__":
+    print(brep)
     voxel_shape = VoxelShape(
         brep=brep, 
         voxel_size=voxel_size, 
@@ -384,31 +406,6 @@ if __name__ == "__main__":
     voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
     angles = [v.facing_angle for v in voxel_shape.voxels_objects]
     conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
-    
-    """ testing place """
-    
-    roof_exterior_centroid_ray = [
-        gh.Line(voxel_shape.sun_point, v.voxel_geom_centroid)
-        for v in voxel_shape.voxels_objects 
-        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
-    ]
-    
-    roof_exterior_voxels = [
-        v.voxel_geom
-        for v in voxel_shape.voxels_objects 
-        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
-    ]
-    
-    shades = []
-    for ray in roof_exterior_centroid_ray:
-        shade = []
-        for voxel in voxels:
-            _, count = rg.Intersect.Intersection.MeshLine(voxel, ray)
-            
-            if count is not None:
-                shade.append(count[0])
-        
-        shades.append(sum(shade))
-        
-    """ testing place """
+    shades = voxel_shape.shades
+    roof_exterior_voxels = voxel_shape.roof_exterior_voxels
     
