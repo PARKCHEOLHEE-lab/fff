@@ -12,6 +12,7 @@ TOLERANCE_MICRO = 0.00001
 HEMISPHERE_RAD = 150
 SUN_RAD = 5
 MOVE_DIST = HEMISPHERE_RAD * 1.7
+PARAPET_HEIGHT = 1.3
 
 
 class Environment:
@@ -220,6 +221,7 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
         self.__gen_grid()
         self.__gen_voxels()
 #        self.__gen_voxel_shades()
+        self.__gen_voxel_shape_parapet()
         
     def __gen_moved_brep(self):
         self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(MOVE_DIST, 0, 0))
@@ -373,6 +375,17 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
                     shade.append(count[0])
             
             self.shades.append(sum(shade))
+            
+    def __gen_voxel_shape_parapet(self):
+        self.roof_faces = [
+            v.voxel_box.ToBrep().Faces[5].ToBrep()
+            for v in self.voxels_objects
+            if v.voxel_condition == VoxelConditions.ROOF
+        ]
+        
+        self.merged_roof_faces = gh.BrepJoin(gh.MergeFaces(self.roof_faces).breps).breps
+        self.parapet_edges = gh.BrepEdges(self.merged_roof_faces).naked
+        self.parapet = gh.Extrude(self.parapet_edges, rg.Point3d(0, 0, PARAPET_HEIGHT))
 
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
@@ -458,10 +471,8 @@ if __name__ == "__main__":
     sun_vector = voxel_shape.sun_vector
     
     voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
+    voxels_parapet = voxel_shape.parapet
     conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
 #    shades = voxel_shape.shades
-#    roof_exterior_voxels = voxel_shape.roof_exterior_voxels
+#    roof_exterior_voxels = voxel_shape.roof_exterior_voxels  # roof, exterior, exterior_corner
     
-    a = [v.voxel_box.ToBrep().Faces[5] for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.ROOF]
-    b = [v.voxel_box.ToBrep().Faces[5] for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.EXTERIOR]
-    c = [v.voxel_geom for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.EXTERIOR_CORNER]
