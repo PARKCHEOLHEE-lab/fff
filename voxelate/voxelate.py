@@ -1,16 +1,17 @@
 ﻿"""need to cleanup code"""
 import math
+import random
 import Rhino.Geometry as rg
 import ghpythonlib.components as gh
 import ghpythonlib.treehelpers as gt
-
+import ghpythonlib.parallel as gp
 
 
 TOLERANCE = 0.001
 TOLERANCE_MICRO = 0.00001
-HEMISPHERE_RAD = 100
+HEMISPHERE_RAD = 150
 SUN_RAD = 5
-MOVE_DIST = 150
+MOVE_DIST = HEMISPHERE_RAD * 1.7
 
 
 class Environment:
@@ -24,6 +25,7 @@ class Environment:
         self.__gen_hemisphere()
         self.__gen_sun()
         self.__gen_sun_facing_plane()
+        self.__gen_sun_facing_angle()
         
     def __gen_environment_bbox(self):
         self.environment_bbox = self.brep.GetBoundingBox(rg.Plane.WorldXY)
@@ -33,7 +35,7 @@ class Environment:
         self.environment_bbox_bottom_face_scaling, _ = gh.Scale(
             geometry=self.environment_bbox_bottom_face,
             center=self.environment_bbox_bottom_face_centroid,
-            factor=10,
+            factor=HEMISPHERE_RAD * 0.1,
         )
         
     def __gen_hemisphere(self):
@@ -63,35 +65,75 @@ class Environment:
             direction=rg.Point3d(0, 0, 1)
         )
         
+        """ archived
+        
+        projected_x1, projected_y1, _ = self.sun_point_to_face_centroid.PointAt(0)
+        projected_x2, projected_y2, _ = self.sun_point_to_face_centroid.PointAt(1)
+        
+        self.projected_sun_point_to_face_centroid = (
+            rg.Line(
+                rg.Point3d(projected_x1, projected_y1, 0), rg.Point3d(projected_x2, projected_y2, 0)
+            )
+        )
+        
+        archived """
+        
         self.sun_vector = self.environment_bbox_bottom_face_centroid - self.sun_point
         self.plane = (
             rg.Plane.WorldXY if self.projected_sun_point_to_face_centroid is None 
             else gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
         )
+        
+    def __gen_sun_facing_angle(self):
+        x1, y1, _ = self.projected_sun_point_to_face_centroid.PointAtStart
+        x2, y2, _ = self.projected_sun_point_to_face_centroid.PointAtEnd
+        
+        self.sun_facing_angle = math.atan2(y2 - y1, x2 - x1)
+        self.rotate_vector = (
+            self.projected_sun_point_to_face_centroid.PointAtStart 
+            - self.projected_sun_point_to_face_centroid.PointAtEnd
+            )
 
 
 class VoxelConditions:
     UNDEFINED = -1
     ROOF = 3
     EXTERIOR = 4
-    INTERIOR = 5
+    EXTERIOR_CORNER = 5
+    INTERIOR = 6
+
+
+class VoxelUnits:
+    def __init__(self, exterior_unit):
+        self.exterior_unit_centroid = gh.Volume(exterior_unit).centroid
+        self.exterior_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_unit, rg.MeshingParameters(0)))
+        self.exterior_unit2 = None
+        
+        self.__gen_rotated_exterior_unit()
+    
+    def __gen_rotated_exterior_unit(self):
+        self.rotated_exterior_unit, _ = gh.Rotate(
+            self.exterior_unit,
+            self.sun_facing_angle, 
+            self.exterior_unit_centroid
+        )
 
 
 class Voxel:
     def __init__(
         self, 
         voxel_geom=None,
+        voxel_box=None,
         voxel_geom_centroid=None,
         voxel_condition=None,
-        facing_angle=None,
         is_roof=False,
         is_exterior=False,
         is_sun_facing=False,
     ):
         self.voxel_geom = voxel_geom
+        self.voxel_box = voxel_box
         self.voxel_geom_centroid = voxel_geom_centroid
         self.voxel_condition = voxel_condition
-        self.facing_angle = facing_angle
         self.is_roof = is_roof
         self.is_exterior = is_exterior
         self.is_sun_facing = is_sun_facing
@@ -142,26 +184,26 @@ class Voxel:
         
     archived """
         
-    def get_voxel_information_v2(self, voxel_geom, sun_centroid, voxel_condition):
+    def get_voxel_object(self, voxel_geom, voxel_box, sun_centroid, voxel_condition):
         voxel_geom_centroid = gh.Volume(voxel_geom).centroid
         
+        if voxel_condition in (self.EXTERIOR, self.ROOF):
+            vector = voxel_geom_centroid - self.exterior_unit_centroid
+            voxel_geom = gh.Move(self.rotated_exterior_unit, vector).geometry
+            
         return Voxel(
             voxel_geom=voxel_geom,
+            voxel_box=voxel_box,
             voxel_geom_centroid=voxel_geom_centroid,
-            facing_angle=self.__get_facing_angle(voxel_geom_centroid, sun_centroid),
             voxel_condition=voxel_condition
         )
-        
-    def __get_facing_angle(self, voxel_geom_centroid, sun_centroid):
-        x1, y1, _ = voxel_geom_centroid
-        x2, y2, _ = sun_centroid
-        return math.atan2(y2 - y1, x2 - x1)
 
 
-class VoxelShape(Voxel, VoxelConditions, Environment):
-    def __init__(self, brep, voxel_size, sun_position):
+class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
+    def __init__(self, brep, voxel_size, exterior_unit, sun_position):
         self.brep = brep
         self.voxel_size = voxel_size
+        self.exterior_unit = exterior_unit
         self.sun_position = sun_position
         self.__voxelate()
         
@@ -177,6 +219,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         self.__gen_moved_brep_bbox()
         self.__gen_grid()
         self.__gen_voxels()
+#        self.__gen_voxel_shades()
         
     def __gen_moved_brep(self):
         self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(MOVE_DIST, 0, 0))
@@ -186,11 +229,15 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         Environment.__init__(self, self.moved_brep, sun_position)
         Voxel.__init__(self)
         VoxelConditions.__init__(self)
+        VoxelUnits.__init__(self, self.exterior_unit)
         
     def __gen_moved_brep_bbox(self):
         self.moved_brep_bbox, _ = gh.BoundingBox(content=self.moved_brep, plane=self.plane)
         self.moved_brep_bbox_faces, _, _ = gh.DeconstructBrep(brep=self.moved_brep_bbox)
-        self.moved_brep_bbox_bottom_face = sorted(self.moved_brep_bbox_faces, key=lambda f: gh.Area(geometry=f).centroid.Z)[0]
+        self.moved_brep_bbox_bottom_face = sorted(
+            self.moved_brep_bbox_faces, 
+            key=lambda f: gh.Area(geometry=f).centroid.Z
+        )[0]
         
     def __gen_grid(self):
         moved_brep_bbox_bottom_face_segments, _ = gh.Explode(curve=self.moved_brep_bbox_bottom_face, recursive=True)
@@ -242,6 +289,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
             self.grid_3d_list,
             self.roof_3d_list, 
             self.exterior_3d_list, 
+            self.exterior_corner_3d_list,
             self.interior_3d_list
         ) = self.__get_voxels_condition_list()
         
@@ -255,31 +303,28 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
                 
                 roof_conditions = self.roof_3d_list[zi][yi]
                 exterior_conditions = self.exterior_3d_list[zi][yi]
+                exterior_corner_conditions = self.exterior_corner_3d_list[zi][yi]
                 interior_conditions = self.interior_3d_list[zi][yi]
                 
                 for xi, sc in enumerate(solid_conditions):
                     if not bool(sc):
                         continue
                     
-                    voxel_geom = (
-                        rg.Mesh.CreateFromBox(
-                            gh.BoxRectangle(self.grid_3d_list[zi][yi][xi], self.voxel_size),
-                            1,
-                            1,
-                            1
-                        )
-                    )
+                    voxel_box = gh.BoxRectangle(self.grid_3d_list[zi][yi][xi], self.voxel_size)
+                    voxel_geom = rg.Mesh.CreateFromBox(voxel_box, 1, 1, 1)
                     
                     voxel_condition = self.UNDEFINED
                     if bool(roof_conditions[xi]):
                         voxel_condition = self.ROOF
+                    elif bool(exterior_corner_conditions[xi]):
+                        voxel_condition = self.EXTERIOR_CORNER
                     elif bool(exterior_conditions[xi]):
                         voxel_condition = self.EXTERIOR                    
                     elif bool(interior_conditions[xi]):
                         voxel_condition = self.INTERIOR  
                         
                     self.voxels_objects.append(
-                        self.get_voxel_information_v2(voxel_geom, sun_centroid, voxel_condition)
+                        self.get_voxel_object(voxel_geom, voxel_box, sun_centroid, voxel_condition)
                     )
         
         """ archived
@@ -304,6 +349,30 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
             self.voxels_objects.append(voxel_object)
             
         arcihved """
+        
+    def __gen_voxel_shades(self):
+        roof_exterior_centroid_ray = [
+            gh.Line(self.sun_point, v.voxel_geom_centroid)
+            for v in self.voxels_objects 
+            if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+        ]
+        
+        self.roof_exterior_voxels = [
+            v.voxel_geom
+            for v in self.voxels_objects 
+            if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
+        ]
+        
+        self.shades = []
+        for ray in roof_exterior_centroid_ray:
+            shade = []
+            for voxel in self.voxels_objects:
+                _, count = rg.Intersect.Intersection.MeshLine(voxel.voxel_geom, ray)
+                
+                if count is not None:
+                    shade.append(count[0])
+            
+            self.shades.append(sum(shade))
 
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
@@ -328,6 +397,7 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         
         roof_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
         exterior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        exterior_corner_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
         for zi, z_list in enumerate(voxel_3d_list):
             prev_zi = (zi - 1) % len(voxel_3d_list)
             next_zi = (zi + 1) % len(voxel_3d_list)
@@ -337,18 +407,22 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
                 next_yi = (yi + 1) % len(z_list)
                 
                 for xi, x in enumerate(y_list):
-                    prev_x = y_list[(xi - 1) % len(y_list)]
-                    next_x = y_list[(xi + 1) % len(y_list)]
-                    back_x = z_list[prev_yi][xi]
-                    frnt_x = z_list[next_yi][xi]
+                    prev_x = bool(y_list[(xi - 1) % len(y_list)])
+                    next_x = bool(y_list[(xi + 1) % len(y_list)])
+                    back_x = bool(z_list[prev_yi][xi])
+                    frnt_x = bool(z_list[next_yi][xi])
                     
                     is_roof = bool(x) and not bool(voxel_3d_list[next_zi][yi][xi])
                     is_exterior = bool(x) and any([not prev_x, not next_x, not back_x, not frnt_x])
+                    is_exterior_corner = bool(x) and [prev_x, next_x, back_x, frnt_x].count(False) >= 2
                     if is_roof:
                         roof_3d_list[zi][yi][xi] = 1
                     
                     if is_exterior:
                         exterior_3d_list[zi][yi][xi] = 1
+                        
+                    if is_exterior_corner:
+                        exterior_corner_3d_list[zi][yi][xi] = 1
                         
         interior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
         for zi, (z_list, e_list) in enumerate(zip(voxel_3d_list, exterior_3d_list)):
@@ -364,47 +438,30 @@ class VoxelShape(Voxel, VoxelConditions, Environment):
         
         grid_3d_list = self.__get_reshaped_list(self.grid, self.x_cols, self.y_cols, self.z_cols)
         
-        return voxel_3d_list, grid_3d_list, roof_3d_list, exterior_3d_list, interior_3d_list
+#        print(exterior_corner_3d_list[2])
+#        print()
+#        print(exterior_3d_list[2])
+        
+        return voxel_3d_list, grid_3d_list, roof_3d_list, exterior_3d_list, exterior_corner_3d_list, interior_3d_list
 
 
 
 if __name__ == "__main__":
     voxel_shape = VoxelShape(
         brep=brep, 
-        voxel_size=3.7, 
+        voxel_size=voxel_size, 
+        exterior_unit=exterior_unit,
         sun_position=sun_position
     )
     
     environment = gh.DeconstructBrep(voxel_shape.hemisphere).edges + [voxel_shape.sun]
+    sun_vector = voxel_shape.sun_vector
     
     voxels = [v.voxel_geom for v in voxel_shape.voxels_objects]
-    angles = [v.facing_angle for v in voxel_shape.voxels_objects]
     conditions = [v.voxel_condition for v in voxel_shape.voxels_objects]
+#    shades = voxel_shape.shades
+#    roof_exterior_voxels = voxel_shape.roof_exterior_voxels
     
-    """ testing place """
-    
-    roof_exterior_centroid_ray = [
-        gh.Line(voxel_shape.sun_point, v.voxel_geom_centroid)
-        for v in voxel_shape.voxels_objects 
-        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
-    ]
-    
-    roof_exterior_voxels = [
-        v.voxel_geom
-        for v in voxel_shape.voxels_objects 
-        if v.voxel_condition in (VoxelConditions.EXTERIOR, VoxelConditions.ROOF)
-    ]
-    
-    shades = []
-    for ray in roof_exterior_centroid_ray:
-        shade = []
-        for voxel in voxels:
-            _, count = rg.Intersect.Intersection.MeshLine(voxel, ray)
-            
-            if count is not None:
-                shade.append(count[0])
-        
-        shades.append(sum(shade))
-        
-    """ testing place """
-    
+    a = [v.voxel_box.ToBrep().Faces[5] for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.ROOF]
+    b = [v.voxel_box.ToBrep().Faces[5] for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.EXTERIOR]
+    c = [v.voxel_geom for v in voxel_shape.voxels_objects if v.voxel_condition == VoxelConditions.EXTERIOR_CORNER]
