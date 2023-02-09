@@ -205,7 +205,6 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
         moved_brep_bbox_bottom_face_segments, _ = gh.Explode(curve=self.moved_brep_bbox_bottom_face, recursive=True)
         
         seg_1, seg_2, _, _ = moved_brep_bbox_bottom_face_segments
-        
         seg_1_vector = seg_1.Line.PointAtLength(self.voxel_size) - seg_1.Line.PointAt(0)
         seg_2_vector = seg_2.Line.PointAtLength(self.voxel_size) - seg_2.Line.PointAt(0)
         
@@ -221,7 +220,6 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
             motion = seg_1_vector * x
             moved_rectangle, _ = gh.Move(geometry=base_rectangle, motion=motion)
             x_grid.append(moved_rectangle)
-        
         x_grid = gh.Move(geometry=x_grid[::-1], motion=gh.Negative(seg_1_vector)).geometry
         
         base_grid = []
@@ -326,11 +324,8 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
                         
                     prev_xi = (xi - 1) % len(conditions)
                     next_xi = (xi + 1) % len(conditions)
-                     
-                    voxel_3x3_map = []
-                    for _ in range(3):
-                        v3m = [0 for _ in range(3)]
-                        voxel_3x3_map.append(v3m)
+                    
+                    voxel_3x3_map = [[0] * 3 for _ in range(3)]
                      
                     north_x = prev_voxels[xi].voxel_condition
                     south_x = next_voxels[xi].voxel_condition
@@ -491,12 +486,6 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
             for yi, (z, e) in enumerate(zip(z_list, e_list)):
                 for xi, (zx, ex) in enumerate(zip(z, e)):
                     interior_3d_list[zi][yi][xi] = zx - ex
-        
-#        for zi, (r_list, e_list) in enumerate(zip(roof_3d_list, exterior_3d_list)):
-#            for yi, (r, e) in enumerate(zip(r_list, e_list)):
-#                for xi, (rx, ex) in enumerate(zip(r, e)):
-#                    if bool(rx) and bool(ex):
-#                        exterior_3d_list[zi][yi][xi] = 0
         
         grid_3d_list = self.__get_reshaped_list(self.grid, self.x_cols, self.y_cols, self.z_cols)
         
