@@ -101,7 +101,7 @@ class VoxelConditions:
 
 class VoxelUnits:
     def __init__(self, exterior_unit, exterior_corner_unit):
-        self.exterior_unit_centroid = gh.Volume(exterior_unit).centroid
+        self.exterior_unit_centroid = gh.Volume(gh.BoundingBox(exterior_unit, rg.Plane.WorldXY).box).centroid
         
         self.exterior_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_unit, rg.MeshingParameters(0)))
         self.exterior_corner_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_corner_unit, rg.MeshingParameters(0)))
@@ -234,9 +234,11 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
             moved_rectangles, _ = gh.Move(geometry=base_grid, motion=motion)
             self.grid.extend(moved_rectangles)
             
+        self.grid_center_lowest_z = self.grid[0].Center.Z
+            
     def __gen_voxels(self):
         self.grid_centroid = [
-            g.Center if g.Center.Z != 0 
+            g.Center if not is_close(g.Center.Z, self.grid_center_lowest_z)
             else g.Center + rg.Point3d(0, 0, TOLERANCE_MICRO) 
             for g in self.grid
         ]
@@ -246,6 +248,13 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
             point=self.grid_centroid, 
             strict=False
         )
+        
+        asdf = self.__get_reshaped_list(self.inside_grid_centroid, self.x_cols, self.y_cols, self.z_cols)[0]
+        for igc in asdf:
+            for idx, i in enumerate(igc):
+                igc[idx] = int(i)
+        
+        self.meshbrep = gh.MeshJoin(self.moved_brep_mesh)
         
         (
             self.voxel_3d_list,
@@ -384,7 +393,7 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
         for voxel_object in self.voxels_objects_flattened:
             each_voxel_condition = voxel_object.voxel_condition
             
-            if each_voxel_condition == self.NONE:
+            if each_voxel_condition in (self.NONE, self.INTERIOR):
                 continue
                 
             voxel_3x3_map = voxel_object.voxel_3x3_map
@@ -424,7 +433,7 @@ class VoxelShape(Voxel, VoxelConditions, VoxelUnits, Environment):
                     
             if voxel_object.is_roof:
                  voxel_object.voxel_condition = self.ROOF
-                
+                 
             voxel_object.voxel_geom = gh.Move(base_unit, vector).geometry
             voxel_object.voxel_geom = gh.Rotate(
                 voxel_object.voxel_geom, rotate_angle, voxel_object.voxel_geom_centroid
@@ -525,3 +534,4 @@ if __name__ == "__main__":
                 voxels_geoms.append(v.voxel_geom)
                 voxels_conditions.append(v.voxel_condition)
                 voxels_shades.append(v.voxel_shade)
+                
