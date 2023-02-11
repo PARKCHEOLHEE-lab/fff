@@ -6,8 +6,7 @@ DIR = os.path.dirname(os.path.realpath(GH_PATH))
 MODEL_PATH = os.path.join(DIR, "3dm")
 UNIT_PATH = os.path.join(MODEL_PATH, "unit")
 
-if __name__ == "__main__":
-    
+class Importer:
     model_3dm = [m for m in os.listdir(MODEL_PATH) if m[-3:] == "3dm"]
     unit_3dm = [u for u in os.listdir(UNIT_PATH) if u[-3:] == "3dm"]
     
@@ -27,10 +26,21 @@ if __name__ == "__main__":
         _
     ) = unit_3dm
     
-    model = gh.Import3DM(os.path.join(MODEL_PATH, _vancouverhouse_3dm), "*", "*")
-    
+    model = gh.Import3DM(os.path.join(MODEL_PATH, _red7_3dm), "*", "*")
     exterior_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_unit_3dm), "*", "*")
     exterior_both_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_both_unit_3dm), "*", "*")
     exterior_corner_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_unit_3dm), "*", "*")
     exterior_corner_o_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_o_unit_3dm), "*", "*")
     exterior_corner_u_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_u_unit_3dm), "*", "*")
+
+
+if __name__ == "__main__":
+    importer = Importer()
+    
+    model = importer.model
+    
+    exterior_unit = importer.exterior_unit
+    exterior_both_unit = importer.exterior_both_unit
+    exterior_corner_unit = importer.exterior_corner_unit
+    exterior_corner_o_unit = importer.exterior_corner_o_unit
+    exterior_corner_u_unit = importer.exterior_corner_u_unit

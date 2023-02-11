@@ -8,10 +8,18 @@ import ghpythonlib.parallel as gp
 
 TOLERANCE = 0.001
 TOLERANCE_MICRO = 0.00001
-HEMISPHERE_RAD = 150
+WORLD_XY = rg.Plane.WorldXY
+
 SUN_RAD = 5
+HEMISPHERE_RAD = 150
 MOVE_DIST = HEMISPHERE_RAD * 1.7
+
 PARAPET_HEIGHT = 0.7
+
+ROTATE_90 = math.pi * 0.5
+ROTATE_180 = math.pi
+ROTATE_270 = math.pi * 1.5
+
 
 class Utils:
     def is_close(self, n1, n2, tolerance=TOLERANCE):
@@ -32,7 +40,7 @@ class Environment:
         self.__gen_sun_facing_angle()
         
     def __gen_environment_bbox(self):
-        self.environment_bbox = self.brep.GetBoundingBox(rg.Plane.WorldXY)
+        self.environment_bbox = self.brep.GetBoundingBox(WORLD_XY)
         self.environment_bbox_faces, _, _ = gh.DeconstructBrep(self.environment_bbox)
         self.environment_bbox_bottom_face = sorted(self.environment_bbox_faces, key=lambda f: gh.Area(geometry=f).centroid.Z)[0]
         _, self.environment_bbox_bottom_face_centroid = gh.Area(self.environment_bbox_bottom_face)
@@ -71,7 +79,7 @@ class Environment:
         
         self.sun_vector = self.environment_bbox_bottom_face_centroid - self.sun_point
         self.plane = (
-            rg.Plane.WorldXY if self.projected_sun_point_to_face_centroid is None 
+            WORLD_XY if self.projected_sun_point_to_face_centroid is None 
             else gh.HorizontalFrame(self.projected_sun_point_to_face_centroid, 0.5)
         )
         
@@ -103,46 +111,23 @@ class VoxelConditions:
 
 class VoxelUnits:
     def __init__(self, exterior_unit, exterior_both_unit, exterior_corner_unit, exterior_corner_o_unit, exterior_corner_u_unit):
-        self.exterior_unit_centroid = gh.Volume(gh.BoundingBox(exterior_unit, rg.Plane.WorldXY).box).centroid
+        self.exterior_unit_centroid = gh.Volume(gh.BoundingBox(exterior_unit, WORLD_XY).box).centroid
         
-        self.exterior_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_unit, rg.MeshingParameters(0)))
-        self.exterior_both_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_both_unit, rg.MeshingParameters(0)))
-        self.exterior_corner_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_corner_unit, rg.MeshingParameters(0)))
-        self.exterior_corner_u_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_corner_u_unit, rg.MeshingParameters(0)))
-        self.exterior_corner_o_unit = gh.MeshJoin(rg.Mesh.CreateFromBrep(exterior_corner_o_unit, rg.MeshingParameters(0)))
+        self.rotated_exterior_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_unit))
+        self.rotated_exterior_both_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_both_unit))
+        self.rotated_exterior_corner_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_unit))
+        self.rotated_exterior_corner_u_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_u_unit))
+        self.rotated_exterior_corner_o_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_o_unit))
         
-        self.__gen_rotated_exterior_unit()
+    def __get_joined_mesh(self, unit):
+        return gh.MeshJoin(rg.Mesh.CreateFromBrep(unit, rg.MeshingParameters(0)))
         
-    def __gen_rotated_exterior_unit(self):
-        self.rotated_exterior_unit, _ = gh.Rotate(
-            self.exterior_unit,
+    def __get_rotated_unit(self, unit):
+        return gh.Rotate(
+            unit,
             self.converted_sun_facing_angle, 
             self.exterior_unit_centroid
-        )
-        
-        self.rotated_exterior_both_unit, _ = gh.Rotate(
-            self.exterior_both_unit,
-            self.converted_sun_facing_angle, 
-            self.exterior_unit_centroid
-        )
-        
-        self.rotated_exterior_corner_unit, _ = gh.Rotate(
-            self.exterior_corner_unit,
-            self.converted_sun_facing_angle, 
-            self.exterior_unit_centroid
-        )
-        
-        self.rotated_exterior_corner_o_unit, _ = gh.Rotate(
-            self.exterior_corner_o_unit,
-            self.converted_sun_facing_angle, 
-            self.exterior_unit_centroid
-        )
-        
-        self.rotated_exterior_corner_u_unit, _ = gh.Rotate(
-            self.exterior_corner_u_unit,
-            self.converted_sun_facing_angle, 
-            self.exterior_unit_centroid
-        )
+        ).geometry
 
 
 class Voxel:
@@ -254,6 +239,8 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         self.y_cols = int(seg_2.Line.Length // self.voxel_size) + 2
         self.z_cols = int(self.moved_brep_bbox.Z[1] // self.voxel_size) + 2
         
+        self.cols = (self.x_cols, self.y_cols, self.z_cols)
+        
         x_grid = []
         for x in range(self.x_cols):
             motion = seg_1_vector * x
@@ -287,11 +274,6 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
             point=self.grid_centroid, 
             strict=False
         )
-        
-        asdf = self.__get_reshaped_list(self.inside_grid_centroid, self.x_cols, self.y_cols, self.z_cols)[0]
-        for igc in asdf:
-            for idx, i in enumerate(igc):
-                igc[idx] = int(i)
         
         self.meshbrep = gh.MeshJoin(self.moved_brep_mesh)
         
@@ -361,10 +343,8 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         
         self.voxels_objects_flattened = self.voxels_objects[:]
         
-        self.voxel_geom_3d_list = self.__get_reshaped_list(
-            [v.voxel_geom for v in self.voxels_objects], self.x_cols, self.y_cols, self.z_cols
-        )
-        self.voxels_objects = self.__get_reshaped_list(self.voxels_objects, self.x_cols, self.y_cols, self.z_cols)
+        self.voxel_geom_3d_list = self.__get_reshaped_list([v.voxel_geom for v in self.voxels_objects], *self.cols)
+        self.voxels_objects = self.__get_reshaped_list(self.voxels_objects, *self.cols)
         
     def __gen_voxel_3x3_map(self):
         for zi, voxels in enumerate(self.voxels_objects):
@@ -493,28 +473,28 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
                 base_unit = self.rotated_exterior_unit
                 
                 if not east:
-                    rotate_angle = math.pi * 1.5
+                    rotate_angle = ROTATE_270
                 elif not west:
-                    rotate_angle = math.pi * 0.5
+                    rotate_angle = ROTATE_90
                 elif not south:
-                    rotate_angle = math.pi
+                    rotate_angle = ROTATE_180
                 
             elif each_voxel_condition == self.EXTERIOR_CORNER:
                 base_unit = self.rotated_exterior_corner_unit
                 
                 if neast:
-                    rotate_angle = math.pi * 1.5
+                    rotate_angle = ROTATE_270
                 elif swest:
-                    rotate_angle = math.pi * 0.5
+                    rotate_angle = ROTATE_90
                 elif seast:
-                    rotate_angle = math.pi
+                    rotate_angle = ROTATE_180
                 
                 if is_ns_both or is_ew_both:
                     voxel_object.voxel_condition = self.EXTERIOR_BOTH
                     base_unit = self.rotated_exterior_both_unit
                     
                     if is_ew_both:
-                        rotate_angle = math.pi * 0.5
+                        rotate_angle = ROTATE_90
                         
             elif each_voxel_condition == self.EXTERIOR_CORNER_O:
                 base_unit = self.rotated_exterior_corner_o_unit
@@ -523,11 +503,11 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
                 base_unit = self.rotated_exterior_corner_u_unit
                 
                 if nwest and neast:
-                    rotate_angle = math.pi * 1.5
+                    rotate_angle = ROTATE_270
                 elif swest and seast:
-                    rotate_angle = math.pi * 0.5
+                    rotate_angle = ROTATE_90
                 elif neast and seast:
-                    rotate_angle = math.pi
+                    rotate_angle = ROTATE_180
              
             if voxel_object.is_roof:
                  voxel_object.voxel_condition = self.ROOF
@@ -554,16 +534,15 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         
     def __get_voxels_condition_list(self):
         inside_grid_centroid_integer = [int(b) for b in self.inside_grid_centroid]
-        voxel_3d_list = self.__get_reshaped_list(
-            inside_grid_centroid_integer, self.x_cols, self.y_cols, self.z_cols
-        )
+        voxel_3d_list = self.__get_reshaped_list(inside_grid_centroid_integer, *self.cols)
         
-        roof_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_both_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_corner_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_corner_u_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
-        exterior_corner_o_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        
+        roof_3d_list = self.__get_default_3d_list()
+        exterior_3d_list = self.__get_default_3d_list()
+        exterior_both_3d_list = self.__get_default_3d_list()
+        exterior_corner_3d_list = self.__get_default_3d_list()
+        exterior_corner_u_3d_list = self.__get_default_3d_list()
+        exterior_corner_o_3d_list = self.__get_default_3d_list()
         
         for zi, z_list in enumerate(voxel_3d_list):
             prev_zi = (zi - 1) % len(voxel_3d_list)
@@ -579,11 +558,13 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
                     back_x = bool(z_list[prev_yi][xi])
                     frnt_x = bool(z_list[next_yi][xi])
                     
+                    exterior_count = [prev_x, next_x, back_x, frnt_x].count(False)
+                    
                     is_roof = bool(x) and not bool(voxel_3d_list[next_zi][yi][xi])
                     is_exterior = bool(x) and any([not prev_x, not next_x, not back_x, not frnt_x])
-                    is_exterior_corner = bool(x) and [prev_x, next_x, back_x, frnt_x].count(False) == 2
-                    is_exterior_corner_u = bool(x) and [prev_x, next_x, back_x, frnt_x].count(False) == 3
-                    is_exterior_corner_o = bool(x) and [prev_x, next_x, back_x, frnt_x].count(False) == 4
+                    is_exterior_corner = bool(x) and exterior_count == 2
+                    is_exterior_corner_u = bool(x) and exterior_count == 3
+                    is_exterior_corner_o = bool(x) and exterior_count == 4
                     
                     if is_roof:
                         roof_3d_list[zi][yi][xi] = 1
@@ -596,13 +577,13 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
                     if is_exterior_corner_u:
                         exterior_corner_u_3d_list[zi][yi][xi] = 1
                         
-        interior_3d_list = self.__get_reshaped_list([0] * len(self.grid_centroid), self.x_cols, self.y_cols, self.z_cols)
+        interior_3d_list = self.__get_default_3d_list()
         for zi, (z_list, e_list) in enumerate(zip(voxel_3d_list, exterior_3d_list)):
             for yi, (z, e) in enumerate(zip(z_list, e_list)):
                 for xi, (zx, ex) in enumerate(zip(z, e)):
                     interior_3d_list[zi][yi][xi] = zx - ex
         
-        grid_3d_list = self.__get_reshaped_list(self.grid, self.x_cols, self.y_cols, self.z_cols)
+        grid_3d_list = self.__get_reshaped_list(self.grid, *self.cols)
         
         return (
             voxel_3d_list, 
@@ -615,6 +596,10 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
             exterior_corner_u_3d_list,
             interior_3d_list
         )
+        
+    def __get_default_3d_list(self):
+        zeros = [0] * len(self.grid_centroid)
+        return self.__get_reshaped_list(zeros, *self.cols)
 
 
 if __name__ == "__main__":
