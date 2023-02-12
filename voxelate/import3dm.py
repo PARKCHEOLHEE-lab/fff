@@ -12,6 +12,7 @@ class Importer:
     
     (
         _79andpark_3dm, 
+        _kingtorontoresidences_3dm,
         _legotowers_3dm, 
         _red7_3dm, 
         _vancouverhouse_3dm,
