@@ -26,18 +26,21 @@ class Importer:
         _
     ) = unit_3dm
     
-    model = gh.Import3DM(os.path.join(MODEL_PATH, _red7_3dm), "*", "*")
+    
     exterior_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_unit_3dm), "*", "*")
     exterior_both_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_both_unit_3dm), "*", "*")
     exterior_corner_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_unit_3dm), "*", "*")
     exterior_corner_o_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_o_unit_3dm), "*", "*")
     exterior_corner_u_unit = gh.Import3DM(os.path.join(UNIT_PATH, _exterior_corner_u_unit_3dm), "*", "*")
+    
+    def get_model(self, model_name):
+        return gh.Import3DM(os.path.join(MODEL_PATH, model_name), "*", "*")
 
 
 if __name__ == "__main__":
     importer = Importer()
     
-    model = importer.model
+    model = importer.get_model(importer._red7_3dm)
     
     exterior_unit = importer.exterior_unit
     exterior_both_unit = importer.exterior_both_unit
