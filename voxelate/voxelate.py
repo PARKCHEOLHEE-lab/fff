@@ -222,8 +222,8 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         self.__gen_voxels()
         self.__gen_voxel_3x3_map()
         self.__gen_placed_voxel_unit()
-        self.__gen_voxel_shades()
         self.__gen_voxel_shape_parapet()
+        self.__gen_voxel_shades()
         
     def __gen_moved_brep(self):
         self.moved_brep, _ = gh.Move(geometry=self.brep, motion=rg.Point3d(MOVE_DIST, 0, 0))
