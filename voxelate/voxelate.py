@@ -113,23 +113,34 @@ class VoxelConditions:
 
 class VoxelUnits:
     def __init__(self, exterior_unit, exterior_both_unit, exterior_corner_unit, exterior_corner_o_unit, exterior_corner_u_unit):
-        self.exterior_unit_centroid = gh.Volume(gh.BoundingBox(exterior_unit, WORLD_XY).box).centroid
+        self.unit_bounding_box = gh.BoundingBox(exterior_unit, WORLD_XY).box
+        self.exterior_unit_centroid = gh.Volume(self.unit_bounding_box).centroid
         
-        self.rotated_exterior_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_unit))
-        self.rotated_exterior_both_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_both_unit))
-        self.rotated_exterior_corner_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_unit))
-        self.rotated_exterior_corner_u_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_u_unit))
-        self.rotated_exterior_corner_o_unit = self.__get_rotated_unit(self.__get_joined_mesh(exterior_corner_o_unit))
+        self.voxel_face_edges = gh.DeconstructBrep(self.unit_bounding_box.ToBrep().Faces[0].ToBrep()).edges
+        self.scale_factor = self.voxel_size / self.voxel_face_edges[0].GetLength()
+        
+        self.rotated_exterior_unit = self.__get_scaled_unit(exterior_unit)
+        self.rotated_exterior_both_unit = self.__get_scaled_unit(exterior_both_unit)
+        self.rotated_exterior_corner_unit = self.__get_scaled_unit(exterior_corner_unit)
+        self.rotated_exterior_corner_u_unit = self.__get_scaled_unit(exterior_corner_u_unit)
+        self.rotated_exterior_corner_o_unit = self.__get_scaled_unit(exterior_corner_o_unit)
         
     def __get_joined_mesh(self, unit):
         return gh.MeshJoin(rg.Mesh.CreateFromBrep(unit, rg.MeshingParameters(0)))
         
     def __get_rotated_unit(self, unit):
         return gh.Rotate(
-            unit,
+            self.__get_joined_mesh(unit),
             self.converted_sun_facing_angle, 
             self.exterior_unit_centroid
         ).geometry
+        
+    def __get_scaled_unit(self, unit):
+        return gh.Scale(
+            self.__get_rotated_unit(unit),
+            self.exterior_unit_centroid,
+            self.scale_factor
+        ).geometry if self.is_needed_resize else self.__get_rotated_unit(unit)
 
 
 class Voxel:
@@ -188,7 +199,8 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         exterior_corner_o_unit,
         exterior_corner_u_unit, 
         sun_position, 
-        is_needed_shades=False
+        is_needed_shades=False,
+        is_needed_resize=False,
     ):
         self.brep = brep
         self.voxel_size = voxel_size
@@ -199,6 +211,7 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         self.exterior_corner_u_unit = exterior_corner_u_unit
         self.sun_position = sun_position
         self.is_needed_shades = is_needed_shades
+        self.is_needed_resize = is_needed_resize
         self.__voxelate()
         
     def __voxelate(self):
@@ -287,8 +300,6 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
             point=self.grid_centroid, 
             strict=False
         )
-        
-        self.meshbrep = gh.MeshJoin(self.moved_brep_mesh)
         
         (
             self.voxel_3d_list,
@@ -497,41 +508,42 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
         
     def __gen_voxel_shape_parapet(self):
         self.roof_faces = []
-        self.joined_voxel_geoms_mesh = []
-        self.roof_voxels_objects = []
-        for voxels in self.voxels_objects:
-            for y_voxels in voxels:
-                for v in y_voxels:
-                    if v.is_roof:
-                        self.roof_faces.append(v.voxel_box.ToBrep().Faces[5].ToBrep())
-                        self.roof_voxels_objects.append(v)
-                        
-                    if v.voxel_condition != self.NONE:
-                        self.joined_voxel_geoms_mesh.append(v.voxel_geom)
-                        
-        self.joined_voxel_geom_mesh = gh.MeshJoin(self.joined_voxel_geoms_mesh)
-        self.merged_roof_faces = gh.BrepJoin(gh.MergeFaces(self.roof_faces).breps).breps
-        self.all_parapet_edges = gh.BrepEdges(self.merged_roof_faces).naked
-        
-        self.parapet_edges = []
-        for i, parapet_edge in enumerate(self.all_parapet_edges):
-            moved_parapet_edge = gh.Move(parapet_edge, rg.Point3d(0, 0, PARAPET_HEIGHT)).geometry
-            moved_parapet_edge_centroid = moved_parapet_edge.PointAtNormalizedLength(0.5)
-            closest_point = gh.MeshClosestPoint(moved_parapet_edge_centroid, self.joined_voxel_geom_mesh).point
+        if self.is_needed_resize:
+            self.joined_voxel_geoms_mesh = []
+            self.roof_voxels_objects = []
+            for voxels in self.voxels_objects:
+                for y_voxels in voxels:
+                    for v in y_voxels:
+                        if v.is_roof:
+                            self.roof_faces.append(v.voxel_box.ToBrep().Faces[5].ToBrep())
+                            self.roof_voxels_objects.append(v)
+                            
+                        if v.voxel_condition != self.NONE:
+                            self.joined_voxel_geoms_mesh.append(v.voxel_geom)
+                            
+            self.joined_voxel_geom_mesh = gh.MeshJoin(self.joined_voxel_geoms_mesh)
+            self.merged_roof_faces = gh.BrepJoin(gh.MergeFaces(self.roof_faces).breps).breps
+            self.all_parapet_edges = gh.BrepEdges(self.merged_roof_faces).naked
             
-            if self.is_close(closest_point.DistanceTo(moved_parapet_edge_centroid), PARAPET_HEIGHT):
-                self.parapet_edges.append(parapet_edge)
-        
-        self.parapet = gh.Extrude(self.parapet_edges, rg.Point3d(0, 0, PARAPET_HEIGHT))
-        self.parapet_mesh = [rg.Mesh.CreateFromBrep(parapet)[0] for parapet in self.parapet]
-        
-        for rvi, roof_voxel in enumerate(self.roof_voxels_objects):
-            for pi, parapet_edge in enumerate(self.parapet_edges):
-                parapet_edge_centroid = parapet_edge.PointAtNormalizedLength(0.5)
-                roof_face_centroid = roof_voxel.voxel_geom_centroid + rg.Point3d(0, 0, self.voxel_size / 2)
+            self.parapet_edges = []
+            for i, parapet_edge in enumerate(self.all_parapet_edges):
+                moved_parapet_edge = gh.Move(parapet_edge, rg.Point3d(0, 0, PARAPET_HEIGHT)).geometry
+                moved_parapet_edge_centroid = moved_parapet_edge.PointAtNormalizedLength(0.5)
+                closest_point = gh.MeshClosestPoint(moved_parapet_edge_centroid, self.joined_voxel_geom_mesh).point
                 
-                if self.is_close(roof_face_centroid.DistanceTo(parapet_edge_centroid), self.voxel_size / 2):
-                    roof_voxel.voxel_geom = gh.MeshJoin([roof_voxel.voxel_geom, self.parapet_mesh[pi]])
+                if self.is_close(closest_point.DistanceTo(moved_parapet_edge_centroid), PARAPET_HEIGHT):
+                    self.parapet_edges.append(parapet_edge)
+            
+            self.parapet = gh.Extrude(self.parapet_edges, rg.Point3d(0, 0, PARAPET_HEIGHT))
+            self.parapet_mesh = [rg.Mesh.CreateFromBrep(parapet)[0] for parapet in self.parapet]
+            
+            for rvi, roof_voxel in enumerate(self.roof_voxels_objects):
+                for pi, parapet_edge in enumerate(self.parapet_edges):
+                    parapet_edge_centroid = parapet_edge.PointAtNormalizedLength(0.5)
+                    roof_face_centroid = roof_voxel.voxel_geom_centroid + rg.Point3d(0, 0, self.voxel_size / 2)
+                    
+                    if self.is_close(roof_face_centroid.DistanceTo(parapet_edge_centroid), self.voxel_size / 2):
+                        roof_voxel.voxel_geom = gh.MeshJoin([roof_voxel.voxel_geom, self.parapet_mesh[pi]])
         
     def __get_reshaped_list(self, one_dim_list, x_shape, y_shape, z_shape):
         x_divided_list = [
@@ -632,6 +644,7 @@ if __name__ == "__main__":
         exterior_corner_u_unit=exterior_corner_u_unit,
         sun_position=sun_position,
         is_needed_shades=False,
+        is_needed_resize=True,
     )
     
     sun_vector = voxel_shape.sun_vector
