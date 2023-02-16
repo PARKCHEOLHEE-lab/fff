@@ -144,6 +144,9 @@ class VoxelUnits:
 
 
 class Voxel:
+    voxel_3x3_map = None
+    voxel_shade = None
+
     def __init__(
         self, 
         voxel_geom=None,
@@ -153,7 +156,6 @@ class Voxel:
         roof_color_index=None,
         is_roof=False,
         is_exterior=False,
-        is_sun_facing=False,
     ):
         self.voxel_geom = voxel_geom
         self.voxel_box = voxel_box
@@ -162,10 +164,6 @@ class Voxel:
         self.roof_color_index = roof_color_index
         self.is_roof = is_roof
         self.is_exterior = is_exterior
-        self.is_sun_facing = is_sun_facing
-        
-        self.voxel_3x3_map = None
-        self.voxel_shade = None
         
     def get_voxel_object(
             self, 
