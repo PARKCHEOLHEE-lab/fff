@@ -367,9 +367,7 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
                         )
                     )
         
-        self.voxels_objects_flattened = self.voxels_objects[:]
-        
-        self.voxel_geom_3d_list = self.__get_reshaped_list([v.voxel_geom for v in self.voxels_objects], *self.cols)
+        self.voxels_objects_flattened = self.voxels_objects[:]        
         self.voxels_objects = self.__get_reshaped_list(self.voxels_objects, *self.cols)
         
     def __gen_voxel_3x3_map(self):
