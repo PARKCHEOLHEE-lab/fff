@@ -24,7 +24,6 @@ class Importer:
         _exterior_corner_unit_3dm, 
         _exterior_corner_o_unit_3dm,
         _exterior_corner_u_unit_3dm,
-        _
     ) = unit_3dm
     
     

@@ -418,10 +418,7 @@ class VoxelShape(Utils, Environment, Voxel, VoxelConditions, VoxelUnits):
             for voxels in self.voxels_objects:
                 for y_voxels in voxels:
                     for vi, v in enumerate(y_voxels):
-                        if (
-                            v.voxel_condition == self.NONE 
-                            or v.voxel_condition not in (self.EXTERIOR, self.EXTERIOR_CORNER, self.ROOF)
-                        ):
+                        if v.voxel_condition == self.NONE:
                             continue
                         
                         ray = rg.Line(self.sun_point, v.voxel_geom_centroid)
